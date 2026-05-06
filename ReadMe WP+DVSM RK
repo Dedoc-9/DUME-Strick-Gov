@@ -55,16 +55,16 @@ import Foundation
  │    - DVSM execution kernel                  │
  │                                             │
  │ 2. Storage Layer (State Truth)              │
- │    - Deterministic Envelopes               │
- │    - Append-only state logs               │
+ │    - Deterministic Envelopes                │
+ │    - Append-only state logs                 │
  │                                             │
  │ 3. Audit Layer (Verification Truth)         │
- │    - Merkle DAG / chain logs              │
- │    - ZK / NIZK proofs (external)          │
+ │    - Merkle DAG / chain logs                │
+ │    - ZK / NIZK proofs (external)            │
  │                                             │
  │ 4. Consensus Layer (DVSM extension)         │
- │    - PBFT-lite quorum validation          │
- │    - shard reconciliation                 │
+ │    - PBFT-lite quorum validation            │
+ │    - shard reconciliation                   │
  └─────────────────────────────────────────────┘
 
  ------------------------------------------------------
