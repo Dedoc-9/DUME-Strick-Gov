@@ -1,0 +1,205 @@
+// =====================================================
+// 🧠 DUME — Deterministic Unified Manifold Engine
+// =====================================================
+//
+// Author: Daniel J. Dillberg
+//
+// This repository contains a single-file deterministic systems kernel
+// for vector ingestion, compression, manifold evolution, and cryptographically
+// verifiable state transitions.
+//
+// Although delivered as a single Swift file, it is architected as a fully
+// modular distributed system designed for direct migration into Swift Package
+// Manager (SPM) without structural changes.
+//
+// =====================================================
+// 🧩 WHAT THIS SYSTEM IS
+// =====================================================
+//
+// DUME is a deterministic computation kernel for structured vector systems
+// with enforced integrity semantics.
+//
+// It provides:
+// - replayable execution
+// - verifiable state transitions
+// - cryptographic auditability
+// - storage-agnostic persistence
+// - manifold-aware structural hooks
+//
+// It is not a database or vector search tool in the traditional sense.
+// It is a deterministic state evolution engine.
+//
+// =====================================================
+// ✔ CORE SYSTEM CAPABILITIES
+// =====================================================
+
+/*
+🧮 1. DETERMINISTIC EXECUTION ENGINE (STRICT CORE)
+
+- Monotonic ingestion ordering
+- Fully replayable system state
+- Explicit envelope-based state transitions
+- No hidden mutation paths
+- No probabilistic branching
+
+This defines the computational truth layer of DUME.
+*/
+
+/*
+🛡 2. DUMEGOV — GOVERNANCE & VERIFICATION LAYER
+
+- Policy enforcement pre/post execution
+- Drift and entropy validation
+- Tamper-evident audit logging
+- Actor-bound cryptographic signatures
+- Integrity verification independent of compute path
+
+DUMEgov does NOT compute state.
+It verifies state correctness.
+*/
+
+/*
+💾 3. STORAGE ABSTRACTION LAYER
+
+- Backend-agnostic persistence interface
+- Supports memory, disk, distributed storage
+- Enables deterministic replay across environments
+- Preserves immutable envelope semantics
+
+Storage is replaceable without engine modification.
+*/
+
+/*
+🧬 4. COMPRESSION + MANIFOLD HOOKS
+
+- Sparse vector compression at ingestion
+- Entropy- and drift-aware transformations
+- Pluggable manifold learning interfaces
+- Future-ready structural projection system
+
+Defines how raw data becomes structured state.
+*/
+
+/*
+🌐 5. GOSSIP TRANSPORT LAYER
+
+- Ordered delta emission system
+- Event propagation for distributed clusters
+- Eventual consistency scaffolding
+- Non-authoritative design (no truth ownership)
+
+This is a transport abstraction, not a consensus layer.
+*/
+
+/*
+🔁 6. REPLAYABLE STATE SYSTEM
+
+- Full system reconstruction from logs
+- Deterministic re-execution across nodes
+- No reliance on runtime memory state
+- Audit-driven state validation
+
+Replay is a core feature, not a debugging tool.
+*/
+
+/*
+🔐 7. CRYPTOGRAPHIC AUDIT CHAIN
+
+- SHA-based envelope hashing
+- Linked hash-chain history
+- Merkle-style checkpoint support
+- Actor-bound zoned signatures
+- Tamper-evident system evolution tracking
+
+This is the system trust backbone.
+*/
+
+// =====================================================
+// 🧩 INTERNAL ARCHITECTURE (LOGICAL MODULES)
+// =====================================================
+//
+// Even though this is a single file, it is structured as:
+//
+// Core Types Layer
+// ├── Anchor, Envelope, Context
+//
+// Engine Layer
+// ├── DUMEStrictEngine
+// ├── DUMEHybridEngine (conceptual)
+//
+// Governance Layer
+// ├── DUMEGovEngineV3
+// ├── AuditLogV3
+//
+// Storage Layer
+// ├── DUMEPersistentStorage (protocol)
+//
+// Compression Layer
+// ├── SparseCompression
+//
+// Manifold Layer
+// ├── GraphEvolution hooks
+//
+// Transport Layer
+// ├── GossipCoordinator / GraphDelta
+//
+// Audit Layer
+// ├── Merkle chains + cryptographic records
+//
+// =====================================================
+// 🧠 ARCHITECTURAL IDENTITY
+// =====================================================
+//
+// DUME is best described as:
+//
+// "A deterministic computation kernel for structured vector systems
+//  with cryptographically enforced state integrity."
+//
+// It is NOT:
+// - a vector database
+// - a similarity search engine
+// - a probabilistic ML pipeline
+//
+// It IS:
+// - a replayable computation system
+// - a verifiable state machine
+// - a distributed integrity framework
+//
+// =====================================================
+// 🚀 DESIGN PHILOSOPHY
+// =====================================================
+//
+// The system is designed for environments where:
+//
+// - correctness > throughput
+// - state must be auditable after execution
+// - distributed behavior must be verifiable
+// - transformations must remain traceable
+// - trust is replaced with cryptographic reconstruction
+//
+// =====================================================
+// 🧭 FUTURE EVOLUTION PATH
+// =====================================================
+//
+// This architecture is intentionally designed to evolve into:
+//
+// - Swift Package Manager modular system
+// - distributed multi-node execution clusters
+// - secure enclave / HSM signing integration
+// - event-sourced global reconstruction engine
+// - manifold-based learned retrieval systems
+// - zk-verifiable audit and compliance layer
+//
+// =====================================================
+// ⚠️ FINAL ARCHITECTURAL NOTE
+// =====================================================
+//
+// This system intentionally collapses distributed complexity into a
+// single deterministic file to demonstrate:
+//
+// → strict boundaries matter more than file count
+// → correctness emerges from structure, not scale
+// → modularity is semantic, not physical
+//
+// DUME is those boundaries made explicit.
+//
