@@ -1,0 +1,158 @@
+// =====================================================
+// MARK: - STRICT ENGINE (FINALIZED API)
+// =====================================================
+
+extension DUMEStrictEngine {
+
+    // =====================================================
+    // MARK: - API
+    // =====================================================
+
+    public func retrieveEnvelope(id: String) async throws -> DeterministicEnvelope? {
+        return try await storage.get(id: id)
+    }
+
+    public func ingest(
+        id: String,
+        vector: [Float],
+        ctx: CompressionContext
+    ) async throws {
+
+        precondition(!id.isEmpty)
+        precondition(!vector.isEmpty)
+
+        let version = clock.tick()
+        ingestCount = version
+
+        // 1. Deterministic Compression (NO hidden state)
+        let (values, indices) = try compression.compress(
+            vector,
+            entropy: ctx.entropy,
+            drift: ctx.drift,
+            isBurstMode: false // strict determinism
+        )
+
+        let anchor = Anchor(
+            id: id,
+            values: values,
+            indices: indices,
+            denseCache: nil,
+            version: Int(version),
+            timestamp: version,
+            originalSize: vector.count
+        )
+
+        let envelope = DeterministicEnvelope(
+            anchor: anchor,
+            entropy: ctx.entropy,
+            drift: ctx.drift,
+            isBurst: false,
+            phase: .active,
+            speculationApplied: false,
+            speculationConfidence: nil,
+            ingestIndex: Int(version),
+            timestamp: version,
+            checksum: "\(id)-\(version)"
+        )
+
+        // 2. Persistence (strict ordering)
+        try await storage.put(envelope)
+
+        // 3. Deterministic subsystem updates
+        index.insert(id: id, vector: vector)
+        graph.update(id: id, vector: vector)
+
+        // 4. Ordered global sync
+        if config.enableGlobalSync {
+            await gossip.append(
+                OrderedDelta(id: id, vector: vector, version: version)
+            )
+        }
+    }
+}
+
+// =====================================================
+// MARK: - GOVERNANCE ENGINE V3 (FINALIZED)
+// =====================================================
+
+public final class DUMEGovEngineV3 {
+
+    private let engine: DUMEStrictEngine
+    private let audit: AuditLogV3
+    private let policy: GovPolicyV3
+    private let actorID: String
+
+    public init(
+        engine: DUMEStrictEngine,
+        crypto: GovCrypto,
+        keyID: String,
+        policy: GovPolicyV3,
+        actorID: String
+    ) {
+        self.engine = engine
+        self.audit = AuditLogV3(crypto: crypto, keyID: keyID)
+        self.policy = policy
+        self.actorID = actorID
+    }
+
+    // =====================================================
+    // MARK: - POLICY ENFORCEMENT
+    // =====================================================
+
+    private func enforce(_ ctx: CompressionContext) throws {
+
+        if ctx.drift > policy.maxDrift {
+            throw DUMEError.invalidVector("Policy Violation: Max Drift Exceeded")
+        }
+
+        if ctx.entropy > policy.maxEntropy {
+            throw DUMEError.invalidVector("Policy Violation: Max Entropy Exceeded")
+        }
+    }
+
+    // =====================================================
+    // MARK: - GOVERNED INGEST
+    // =====================================================
+
+    public func ingest(
+        id: String,
+        vector: [Float],
+        ctx: CompressionContext
+    ) async throws {
+
+        // 1. Policy gate (pre-execution)
+        try enforce(ctx)
+
+        // 2. Execute deterministic ingest
+        try await engine.ingest(id: id, vector: vector, ctx: ctx)
+
+        // 3. Retrieve persisted envelope
+        guard let envelope = try await engine.retrieveEnvelope(id: id) else {
+            throw DUMEError.storageError("Failed to verify persistence for audit")
+        }
+
+        // 4. Append to audit log (actor-safe, no await needed)
+        try await audit.append(
+            envelope: envelope,
+            actorID: actorID,
+            policy: policy,
+            zone: .ingest
+        )
+    }
+
+    // =====================================================
+    // MARK: - CONTROL SURFACES
+    // =====================================================
+
+    public func checkpoint() async {
+        await audit.checkpoint()
+    }
+
+    public func verify() async -> Bool {
+        await audit.verify()
+    }
+
+    public func export() async -> [AuditRecordV3] {
+        await audit.snapshot()
+    }
+}
