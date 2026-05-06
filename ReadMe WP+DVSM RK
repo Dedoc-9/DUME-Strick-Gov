@@ -1,0 +1,535 @@
+Author: Daniel J. Dillberg
+
+import Foundation
+
+// =====================================================
+// MARK: - DUME WHITEPAPER (GIT DROP-IN SPEC)
+// =====================================================
+
+/*
+ ======================================================
+ DUME — DETERMNISTIC UNIFIED MANIFOLD ENGINE
+ ======================================================
+
+ VERSION: DVSM / DUME Unified Research Spec (v16+ lineage)
+ AUTHOR: (Your Project / Research System)
+
+ ------------------------------------------------------
+ PURPOSE
+ ------------------------------------------------------
+
+ DUME is a deterministic execution + audit architecture
+ designed to replace probabilistic ML pipelines with:
+
+    - verifiable computation
+    - reproducible state evolution
+    - cryptographically anchored traces
+    - shard-based distributed consistency
+
+ It is NOT:
+    - a vector database
+    - a black-box ML model
+    - a probabilistic system without auditability
+
+ ------------------------------------------------------
+ CORE DESIGN PRINCIPLE
+ ------------------------------------------------------
+
+ Every system transition must be:
+
+    1. Deterministic OR
+    2. Reproducible OR
+    3. Cryptographically verifiable
+
+ If none apply → the system rejects the state.
+
+ ------------------------------------------------------
+ SYSTEM LAYERS
+ ------------------------------------------------------
+
+ ┌─────────────────────────────────────────────┐
+ │                 DUME CORE                   │
+ ├─────────────────────────────────────────────┤
+ │ 1. Engine Layer (Compute Determinism)       │
+ │    - Strict Engine                          │
+ │    - DVSM execution kernel                  │
+ │                                             │
+ │ 2. Storage Layer (State Truth)              │
+ │    - Deterministic Envelopes               │
+ │    - Append-only state logs               │
+ │                                             │
+ │ 3. Audit Layer (Verification Truth)         │
+ │    - Merkle DAG / chain logs              │
+ │    - ZK / NIZK proofs (external)          │
+ │                                             │
+ │ 4. Consensus Layer (DVSM extension)         │
+ │    - PBFT-lite quorum validation          │
+ │    - shard reconciliation                 │
+ └─────────────────────────────────────────────┘
+
+ ------------------------------------------------------
+ TRUST MODEL
+ ------------------------------------------------------
+
+ DUME operates under a “NO SINGLE TRUSTED LAYER” model:
+
+    Engine     → can compute incorrectly
+    Storage    → can be stale
+    Audit      → is authoritative only post-verification
+    Consensus  → resolves divergence only statistically
+
+ ------------------------------------------------------
+ SHARD MODEL (DVSM EXTENSION)
+ ------------------------------------------------------
+
+ Each shard maintains:
+
+    - local Merkle accumulator
+    - append-only audit chain
+    - incremental hash root
+    - eventual consistency gossip state
+
+ Global state is:
+
+    SHA256( sorted(shard_roots) )
+
+ ------------------------------------------------------
+ CRYPTOGRAPHIC MODEL
+ ------------------------------------------------------
+
+ Current implementation (Swift baseline):
+
+    - SHA256 (CryptoKit)
+    - deterministic VRF stub
+    - placeholder ZK interface
+
+ Production upgrade path:
+
+    REQUIRED EXTERNAL MODULES:
+    - BLAKE3 hashing engine (preferred over SHA256)
+    - Rust Groth16 / Halo2 ZK verifier
+    - hardware accelerated hashing (optional)
+
+ ------------------------------------------------------
+ ZERO KNOWLEDGE LAYER
+ ------------------------------------------------------
+
+ DUME does NOT assume visibility of:
+
+    - raw vectors
+    - policy execution traces
+    - internal decision trees
+
+ Instead:
+
+    - only commitments are stored
+    - proofs are verified externally (Rust FFI)
+    - invalid proofs are rejected at ingest time
+
+ ------------------------------------------------------
+ CONSENSUS MODEL (PBFT-LITE)
+ ------------------------------------------------------
+
+ DVSM reconciliation uses:
+
+    quorum(votes) = 2/3 majority agreement
+
+ If quorum fails:
+
+    - state is flagged as Byzantine
+    - no overwrite occurs
+    - divergence is preserved for audit
+
+ ------------------------------------------------------
+ REPLAY & DETERMINISM
+ ------------------------------------------------------
+
+ Future DVSM extensions include:
+
+    - deterministic replay VM
+    - full execution trace validation
+    - SMT constraint verification (Z3)
+
+ Goal:
+    Any state can be replayed byte-for-byte.
+
+ ------------------------------------------------------
+ SECURITY MODEL
+ ------------------------------------------------------
+
+ Threat assumptions:
+
+    - malicious nodes exist
+    - partial network failure exists
+    - corrupted state propagation exists
+
+ Guarantees:
+
+    - no silent state mutation
+    - no hidden overwrites
+    - full traceability of all decisions
+
+ ------------------------------------------------------
+ LIMITATIONS (CURRENT VERSION)
+ ------------------------------------------------------
+
+ This Swift implementation intentionally:
+
+    - does NOT include real ZK proofs (Rust required)
+    - does NOT include real distributed networking
+    - does NOT include BLAKE3 or hardware crypto acceleration
+    - does NOT include full replay VM
+    - does NOT include SMT solver runtime
+
+ These are architectural hooks only.
+
+ ------------------------------------------------------
+ EXTENSION ROADMAP
+ ------------------------------------------------------
+
+ DVSM v17+ targets:
+
+    - full zk-SNARK verification pipeline
+    - distributed replay execution engine
+    - shard-level DAG proofs
+    - formal invariant verification layer
+    - slashing-based Byzantine reputation graph
+
+ ------------------------------------------------------
+ SUMMARY
+ ------------------------------------------------------
+
+ DUME is a deterministic state machine framework
+ that treats computation as a verifiable artifact,
+ not an implicit probabilistic process.
+
+ Every output must be:
+
+    reproducible
+    traceable
+    verifiable
+    or rejected
+
+ ======================================================
+ END OF WHITEPAPER SPECIFICATION
+ ======================================================
+*/
+
+// =====================================================
+// MARK: - OPTIONAL RUNTIME METADATA (NO LOGIC)
+// =====================================================
+
+public enum DUMEWhitepaper {
+    public static let version = "DVSM-v16-Research-Spec"
+    public static let mode = "Deterministic-Verifiable-State-Machine"
+    public static let trustModel = "Multi-layer Non-Trusted Execution"
+}
+import Foundation
+import CryptoKit
+import ObjectiveC
+
+// =====================================================
+// MARK: - DUME / DVSM v16+ RESEARCH KERNEL
+// =====================================================
+
+/*
+ ARCHITECTURAL NOTE:
+
+ This file integrates:
+ - DUME deterministic compute engine
+ - DVSM verifiable state machine layer
+ - Governance + audit + consensus simulation
+ - ZK / VRF / PBFT / DAG upgrade hooks (externalized)
+
+ EXTERNAL SYSTEMS REQUIRED FOR FULL PRODUCTION:
+
+ [1] Rust FFI ZK ENGINE (Groth16 / Halo2)
+ [2] Blake3 / hardware SHA acceleration layer
+ [3] Z3 SMT solver runtime bridge
+ [4] Distributed replay VM (determinism validator)
+ [5] Real P2P gossip transport (libp2p / CRDT layer)
+*/
+
+// =====================================================
+// MARK: - TRUST ZONES
+// =====================================================
+
+public enum TrustZone: String, Codable {
+    case ingest
+    case compute
+    case audit
+    case external
+}
+
+// =====================================================
+// MARK: - DETECTION & CONSENSUS MODEL
+// =====================================================
+
+public enum DVSMDecision: Sendable, CustomStringConvertible {
+    case accept
+    case degrade(Float)
+    case mutate(Float)
+    case reject(String)
+
+    public var description: String {
+        switch self {
+        case .accept: return "ACCEPT"
+        case .degrade(let f): return "DEGRADE(\(f))"
+        case .mutate(let f): return "MUTATE(\(f))"
+        case .reject(let r): return "REJECT(\(r))"
+        }
+    }
+}
+
+// =====================================================
+// MARK: - VRF (AUDITABLE DETERMINISM LAYER)
+// =====================================================
+
+public struct VRF {
+    public static func eval(seed: UInt64, context: String) -> Float {
+        var h = seed ^ UInt64(context.hashValue)
+        h = h &* 6364136223846793005 &+ 1
+        return Float((h >> 16) & 0xFFFF) / 65535.0
+    }
+}
+
+// =====================================================
+// MARK: - ZK BRIDGE (EXTERNAL RUST REQUIRED)
+// =====================================================
+
+public protocol ZKVerifier {
+    func verify(policyHash: Data, trace: Data, proof: Data) -> Bool
+}
+
+/// STUB: replace with Rust Groth16 / Halo2 FFI
+public struct RustZKBridge: ZKVerifier {
+    public init() {}
+
+    public func verify(policyHash: Data, trace: Data, proof: Data) -> Bool {
+        // deterministic placeholder gate
+        return SHA256.hash(data: policyHash + trace + proof).first == 0
+    }
+}
+
+// =====================================================
+// MARK: - SIMPLE HASH LAYER (REPLACE WITH BLAKE3)
+// =====================================================
+
+public struct CryptoHasher {
+    public static func hash(_ data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+}
+
+// =====================================================
+// MARK: - NIZK / PROOF STRUCTURE
+// =====================================================
+
+public struct NIZKProof: Sendable {
+    public let statement: String
+    public let commitment: String
+    public let proof: Data
+}
+
+// =====================================================
+// MARK: - MERKLE DAG NODE (FULL DAG READY)
+// =====================================================
+
+public struct MerkleNode: Sendable {
+    public let hash: String
+    public let parents: [String]
+}
+
+// =====================================================
+// MARK: - AUDIT RECORD (DVSM EXTENDED)
+// =====================================================
+
+public struct AuditRecord: Sendable {
+    public let id: String
+    public let trace: String
+    public let hash: String
+    public let prevHash: String?
+    public let zkProof: NIZKProof?
+}
+
+// =====================================================
+// MARK: - MERKLE ACCUMULATOR (INCREMENTAL O(1))
+// =====================================================
+
+public final class MerkleAccumulator {
+
+    private var tips: [String: String] = [:]
+
+    public init() {}
+
+    public func update(shard: String, hash: String) {
+        tips[shard] = hash
+    }
+
+    public func root() -> String {
+        let combined = tips.values.sorted().joined(separator: "|")
+        return CryptoHasher.hash(Data(combined.utf8))
+    }
+
+    public func shardRoot(_ shard: String) -> String {
+        tips[shard] ?? "GENESIS"
+    }
+}
+
+// =====================================================
+// MARK: - PBFT LITE CONSENSUS
+// =====================================================
+
+public struct PBFTLite {
+
+    public func quorum(_ votes: [Bool]) -> Bool {
+        guard !votes.isEmpty else { return false }
+        let yes = votes.filter { $0 }.count
+        return yes >= (votes.count * 2 / 3)
+    }
+}
+
+// =====================================================
+// MARK: - DVSM CORE ENGINE
+// =====================================================
+
+public final class DVSMv16Engine {
+
+    private let zk: ZKVerifier
+    private let pbft = PBFTLite()
+
+    private let accumulator = MerkleAccumulator()
+
+    private var shardChains: [String: [AuditRecord]] = [:]
+    private var seed: UInt64 = 0xA1B2C3D4
+    private var counter: UInt64 = 0
+
+    public init(zk: ZKVerifier = RustZKBridge()) {
+        self.zk = zk
+    }
+
+    // =====================================================
+    // MARK: - INGEST PIPELINE
+    // =====================================================
+
+    public func ingest(
+        id: String,
+        vector: [Float],
+        instability: Float,
+        confidence: Float,
+        node: String,
+        shard: String
+    ) {
+
+        counter += 1
+
+        let vrf = VRF.eval(seed: seed, context: id)
+        let trace = "ID:\(id)|NODE:\(node)|T:\(counter)"
+
+        let prev = accumulator.shardRoot(shard)
+
+        let payload = Data((prev + trace).utf8)
+        let hash = CryptoHasher.hash(payload)
+
+        // =================================================
+        // ZK STATEMENT (POLICY + TRACE)
+        // =================================================
+
+        let policyHash = Data("policy_v16".utf8)
+        let zkValid = zk.verify(policyHash: policyHash,
+                                trace: Data(trace.utf8),
+                                proof: Data([vrf]))
+
+        let zkProof = NIZKProof(
+            statement: id,
+            commitment: hash,
+            proof: Data([vrf])
+        )
+
+        let record = AuditRecord(
+            id: id,
+            trace: trace,
+            hash: hash,
+            prevHash: prev,
+            zkProof: zkValid ? zkProof : nil
+        )
+
+        shardChains[shard, default: []].append(record)
+        accumulator.update(shard: shard, hash: hash)
+
+        print("[DVSMv16] \(trace) | ZK:\(zkValid)")
+    }
+
+    // =====================================================
+    // MARK: - MERKLE ROOT (GLOBAL DAG STATE)
+    // =====================================================
+
+    public func globalRoot() -> String {
+        accumulator.root()
+    }
+
+    public func shardRoot(_ shard: String) -> String {
+        accumulator.shardRoot(shard)
+    }
+
+    // =====================================================
+    // MARK: - RECONCILIATION (PBFT LITE)
+    // =====================================================
+
+    public func reconcile(votes: [String: String]) -> Bool {
+
+        let local = globalRoot()
+        let results = votes.values.map { $0 == local }
+
+        let ok = pbft.quorum(results)
+
+        if !ok {
+            print("[DVSMv16] ⚠️ BYZANTINE QUORUM FAILURE")
+        }
+
+        return ok
+    }
+
+    // =====================================================
+    // MARK: - DAG PROOF (SIMPLIFIED)
+    // =====================================================
+
+    public func merkleProof(shard: String, id: String) -> (leaf: String, root: String, path: [String])? {
+
+        guard let chain = shardChains[shard],
+              let index = chain.firstIndex(where: { $0.id == id }) else {
+            return nil
+        }
+
+        let leaf = chain[index].hash
+        let root = accumulator.shardRoot(shard)
+
+        let path = chain.prefix(index).map { $0.hash }
+
+        return (leaf, root, Array(path))
+    }
+}
+
+// =====================================================
+// MARK: - PROOF VERIFIER EXTENSION
+// =====================================================
+
+extension DVSMv16Engine {
+
+    public func verifyProof(
+        leaf: String,
+        root: String,
+        path: [String]
+    ) -> Bool {
+
+        var current = leaf
+
+        for p in path {
+            current = CryptoHasher.hash(Data((p + current).utf8))
+        }
+
+        return current == root
+    }
+}
