@@ -1,0 +1,391 @@
+import Foundation
+import CryptoKit
+import ObjectiveC
+
+// =====================================================
+// MARK: - CORE TYPES
+// =====================================================
+
+public enum DUMEError: Error {
+    case invalidVector(String)
+    case storageError(String)
+}
+
+// -----------------------------------------------------
+
+public struct CompressionContext: Sendable {
+    public let drift: Float
+    public let entropy: Float
+}
+
+// -----------------------------------------------------
+
+public struct Anchor: Codable, Sendable {
+    public let id: String
+    public let values: [Float]
+    public let indices: [Int]
+    public let version: Int
+    public let timestamp: UInt64
+    public let originalSize: Int
+}
+
+// -----------------------------------------------------
+
+public struct DeterministicEnvelope: Codable, Sendable {
+    public enum Phase: String, Codable { case active, archived }
+
+    public let anchor: Anchor
+    public let entropy: Float
+    public let drift: Float
+    public let phase: Phase
+    public let ingestIndex: Int
+    public let timestamp: UInt64
+    public let checksum: String
+}
+
+// =====================================================
+// MARK: - CLOCK (DETERMINISM FOUNDATION)
+// =====================================================
+
+public protocol DeterministicClock: Sendable {
+    func tick() -> UInt64
+    func now() -> UInt64
+}
+
+public final class MonotonicClock: DeterministicClock {
+    private var counter: UInt64 = 0
+    private let lock = NSLock()
+
+    public init() {}
+
+    public func tick() -> UInt64 {
+        lock.lock(); defer { lock.unlock() }
+        counter += 1
+        return counter
+    }
+
+    public func now() -> UInt64 { counter }
+}
+
+// =====================================================
+// MARK: - STORAGE LAYER
+// =====================================================
+
+public protocol DUMEPersistentStorage: Sendable {
+    func put(_ envelope: DeterministicEnvelope) async throws
+    func get(_ id: String) async throws -> DeterministicEnvelope?
+}
+
+// In-memory reference implementation
+public actor MemoryStorage: DUMEPersistentStorage {
+    private var store: [String: DeterministicEnvelope] = [:]
+
+    public init() {}
+
+    public func put(_ envelope: DeterministicEnvelope) async throws {
+        store[envelope.anchor.id] = envelope
+    }
+
+    public func get(_ id: String) async throws -> DeterministicEnvelope? {
+        store[id]
+    }
+}
+
+// =====================================================
+// MARK: - COMPRESSION LAYER
+// =====================================================
+
+public final class SparseCompression: Sendable {
+    public init() {}
+
+    public func compress(
+        _ vector: [Float],
+        entropy: Float,
+        drift: Float,
+        isBurstMode: Bool = false
+    ) throws -> (values: [Float], indices: [Int]) {
+
+        let indices = Array(vector.indices)
+        return (vector, indices)
+    }
+}
+
+// =====================================================
+// MARK: - MANIFOLD GRAPH LAYER
+// =====================================================
+
+public final class GraphEvolution: Sendable {
+    public init() {}
+
+    public func update(id: String, vector: [Float]) {
+        // deterministic graph evolution placeholder
+    }
+}
+
+// =====================================================
+// MARK: - INDEXING
+// =====================================================
+
+public final class ApproximateIndex: Sendable {
+    public init() {}
+
+    public func insert(id: String, vector: [Float]) {
+        // ANN placeholder
+    }
+}
+
+// =====================================================
+// MARK: - TRANSPORT LAYER (GOSSIP)
+// =====================================================
+
+public struct OrderedDelta: Sendable {
+    public let id: String
+    public let vector: [Float]
+    public let version: UInt64
+}
+
+public actor StrictGossip {
+    private var buffer: [OrderedDelta] = []
+
+    public init() {}
+
+    public func append(_ delta: OrderedDelta) {
+        buffer.append(delta)
+    }
+}
+
+// =====================================================
+// MARK: - BURST + SPECULATION + DRIFT
+// =====================================================
+
+public final class BurstDetector: Sendable {
+    public var isBurstMode: Bool = false
+    public init() {}
+    public func update(entropy: Float) {}
+}
+
+public final class SpeculativeEngine: Sendable {
+    public init() {}
+}
+
+public final class DriftMonitor: Sendable {
+    private var values: [Float] = []
+
+    public init() {}
+
+    public func record(_ drift: Float) {
+        values.append(drift)
+        if values.count > 50 { values.removeFirst() }
+    }
+}
+
+// =====================================================
+// MARK: - GOVERNANCE CRYPTO
+// =====================================================
+
+public protocol GovCrypto: Sendable {
+    func hash(_ data: Data) -> Data
+}
+
+public struct SHA256Crypto: GovCrypto {
+    public init() {}
+
+    public func hash(_ data: Data) -> Data {
+        Data(SHA256.hash(data: data))
+    }
+}
+
+// =====================================================
+// MARK: - GOVERNANCE POLICY
+// =====================================================
+
+public struct GovPolicy: Sendable {
+    public let maxDrift: Float
+    public let maxEntropy: Float
+
+    public init(maxDrift: Float, maxEntropy: Float) {
+        self.maxDrift = maxDrift
+        self.maxEntropy = maxEntropy
+    }
+}
+
+// =====================================================
+// MARK: - AUDIT LOG (IMMUTABLE CHAIN)
+// =====================================================
+
+public struct AuditRecord: Sendable {
+    public let id: String
+    public let hash: Data
+    public let prevHash: Data?
+}
+
+public actor AuditLog {
+    private var records: [AuditRecord] = []
+    private let crypto: GovCrypto
+
+    public init(crypto: GovCrypto) {
+        self.crypto = crypto
+    }
+
+    public func append(id: String, envelope: DeterministicEnvelope) throws {
+        let encoded = try JSONEncoder().encode(envelope)
+        let hash = crypto.hash(encoded)
+        let prev = records.last?.hash
+
+        records.append(AuditRecord(id: id, hash: hash, prevHash: prev))
+    }
+
+    public func verify() -> Bool {
+        var prev: Data?
+
+        for r in records {
+            if let p = prev, r.prevHash != p {
+                return false
+            }
+            prev = r.hash
+        }
+        return true
+    }
+}
+
+// =====================================================
+// MARK: - STRICT ENGINE (DETERMINISTIC CORE)
+// =====================================================
+
+public final class DUMEStrictEngine {
+
+    private let storage: any DUMEPersistentStorage
+    private let clock: DeterministicClock
+    private let compression: SparseCompression
+    private let index = ApproximateIndex()
+    private let graph = GraphEvolution()
+    private let gossip = StrictGossip()
+
+    private var ingestCount: UInt64 = 0
+
+    public init(
+        storage: any DUMEPersistentStorage,
+        clock: DeterministicClock = MonotonicClock(),
+        compression: SparseCompression = .init()
+    ) {
+        self.storage = storage
+        self.clock = clock
+        self.compression = compression
+    }
+
+    public func retrieveEnvelope(id: String) async throws -> DeterministicEnvelope? {
+        try await storage.get(id)
+    }
+
+    public func ingest(
+        id: String,
+        vector: [Float],
+        ctx: CompressionContext
+    ) async throws {
+
+        let version = clock.tick()
+        ingestCount = version
+
+        let (values, indices) = try compression.compress(
+            vector,
+            entropy: ctx.entropy,
+            drift: ctx.drift
+        )
+
+        let anchor = Anchor(
+            id: id,
+            values: values,
+            indices: indices,
+            version: Int(version),
+            timestamp: version,
+            originalSize: vector.count
+        )
+
+        let envelope = DeterministicEnvelope(
+            anchor: anchor,
+            entropy: ctx.entropy,
+            drift: ctx.drift,
+            phase: .active,
+            ingestIndex: Int(version),
+            timestamp: version,
+            checksum: "\(id)-\(version)"
+        )
+
+        try await storage.put(envelope)
+
+        index.insert(id: id, vector: vector)
+        graph.update(id: id, vector: vector)
+        await gossip.append(OrderedDelta(id: id, vector: vector, version: version))
+    }
+}
+
+// =====================================================
+// MARK: - GOVERNANCE ENGINE (AUDIT GATE)
+// =====================================================
+
+public final class DUMEGovEngine {
+
+    private let engine: DUMEStrictEngine
+    private let audit: AuditLog
+    private let policy: GovPolicy
+
+    public init(
+        engine: DUMEStrictEngine,
+        policy: GovPolicy,
+        crypto: GovCrypto = SHA256Crypto()
+    ) {
+        self.engine = engine
+        self.policy = policy
+        self.audit = AuditLog(crypto: crypto)
+    }
+
+    private func enforce(_ ctx: CompressionContext) throws {
+        guard ctx.drift <= policy.maxDrift else {
+            throw DUMEError.invalidVector("Drift violation")
+        }
+
+        guard ctx.entropy <= policy.maxEntropy else {
+            throw DUMEError.invalidVector("Entropy violation")
+        }
+    }
+
+    public func ingest(
+        id: String,
+        vector: [Float],
+        ctx: CompressionContext
+    ) async throws {
+
+        try enforce(ctx)
+
+        try await engine.ingest(id: id, vector: vector, ctx: ctx)
+
+        guard let envelope = try await engine.retrieveEnvelope(id: id) else {
+            throw DUMEError.storageError("Missing envelope")
+        }
+
+        try audit.append(id: id, envelope: envelope)
+    }
+
+    public func verify() -> Bool {
+        audit.verify()
+    }
+}
+
+// =====================================================
+// MARK: - GLOBAL SYSTEM WRAPPER (OPTIONAL ENTRY POINT)
+// =====================================================
+
+public final class DUME {
+
+    public let engine: DUMEStrictEngine
+    public let gov: DUMEGovEngine
+
+    public init(storage: any DUMEPersistentStorage) {
+        self.engine = DUMEStrictEngine(storage: storage)
+
+        self.gov = DUMEGovEngine(
+            engine: engine,
+            policy: GovPolicy(maxDrift: 0.4, maxEntropy: 0.8)
+        )
+    }
+}
