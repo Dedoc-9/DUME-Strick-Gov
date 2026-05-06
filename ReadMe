@@ -1,0 +1,141 @@
+    private let graph: GraphEvolution
+    private let gossip: StrictGossip
+
+    public init(
+        metric: DUMEMetric,
+        storage: DUMEPersistentStorage,
+        clock: DeterministicClock = MonotonicClock(),
+        config: DUMEStrictConfig = .init()
+    ) {
+        self.storage = storage
+        self.clock = clock
+        self.config = config
+        self.compression = SparseCompression()
+        self.index = ApproximateIndex()
+        self.graph = GraphEvolution(metric: metric, k: 3)
+        self.gossip = StrictGossip()
+    }
+
+    public func retrieveEnvelope(id: String) async throws -> DeterministicEnvelope? {
+        try await storage.get(id: id)
+    }
+
+    public func ingest(
+        id: String,
+        vector: [Float],
+        ctx: CompressionContext
+    ) async throws {
+        let version = clock.tick()
+        
+        // 1. Compress
+        let (values, indices) = try compression.compress(
+            vector,
+            entropy: ctx.entropy,
+            drift: ctx.drift,
+            isBurstMode: false
+        )
+
+        let anchor = Anchor(
+            id: id,
+            values: values,
+            indices: indices,
+            denseCache: nil,
+            version: Int(version),
+            timestamp: version,
+            originalSize: vector.count
+        )
+
+        let envelope = DeterministicEnvelope(
+            anchor: anchor,
+            entropy: ctx.entropy,
+            drift: ctx.drift,
+            isBurst: false,
+            phase: .active,
+            speculationApplied: false,
+            speculationConfidence: nil,
+            ingestIndex: Int(version),
+            timestamp: version,
+            checksum: "\(id)-\(version)"
+        )
+
+        // 2. Persist
+        try await storage.put(envelope)
+
+        // 3. Update Subsystems
+        index.insert(id: id, vector: vector)
+        graph.update(id: id, vector: vector)
+        
+        if config.enableGlobalSync {
+            await gossip.append(OrderedDelta(id: id, vector: vector, version: version))
+        }
+    }
+}
+
+// =====================================================
+// MARK: - GOVERNANCE ENGINE V3
+// =====================================================
+
+public final class DUMEGovEngineV3 {
+
+    private let engine: DUMEStrictEngine
+    private let audit: AuditLogV3
+    private let policy: GovPolicyV3
+    private let actorID: String
+
+    public init(
+        engine: DUMEStrictEngine,
+        crypto: GovCrypto = SHA256CryptoV3(),
+        keyID: String,
+        policy: GovPolicyV3,
+        actorID: String
+    ) {
+        self.engine = engine
+        self.audit = AuditLogV3(crypto: crypto, keyID: keyID)
+        self.policy = policy
+        self.actorID = actorID
+    }
+
+    private func enforce(_ ctx: CompressionContext) throws {
+        guard ctx.drift <= policy.maxDrift else {
+            throw DUMEError.invalidVector("Policy Breach: Max Drift")
+        }
+        guard ctx.entropy <= policy.maxEntropy else {
+            throw DUMEError.invalidVector("Policy Breach: Max Entropy")
+        }
+    }
+
+    public func ingest(id: String, vector: [Float], ctx: CompressionContext) async throws {
+        // Gate check
+        try enforce(ctx)
+
+        // Execution
+        try await engine.ingest(id: id, vector: vector, ctx: ctx)
+
+        // Verification & Audit
+        guard let envelope = try await engine.retrieveEnvelope(id: id) else {
+            throw DUMEError.storageError("Persistence Verification Failed")
+        }
+
+        try await audit.append(
+            envelope: envelope,
+            actorID: actorID,
+            policy: policy,
+            zone: .ingest
+        )
+    }
+
+    public func verifyIntegrity() async -> Bool {
+        await audit.verify()
+    }
+}
+
+// =====================================================
+// MARK: - CONFIG
+// =====================================================
+
+public struct DUMEStrictConfig: Sendable {
+    public let enableGlobalSync: Bool
+    public init(globalSync: Bool = true) {
+        self.enableGlobalSync = globalSync
+    }
+}
