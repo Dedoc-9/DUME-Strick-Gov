@@ -1,0 +1,200 @@
+DUME/
+├── DUME.swift                      // PUBLIC SURFACE (SDK ENTRYPOINT)
+│
+│   Purpose:
+│   - @_exported imports
+│   - Public type re-exports
+│   - Minimal API surface
+│
+│   Rule:
+│   - No logic lives here
+│   - Only orchestration of modules
+│
+│
+├── Core/
+│   ├── Types/
+│   │   ├── Anchor.swift
+│   │   ├── DeterministicEnvelope.swift
+│   │   ├── CompressionContext.swift
+│   │   ├── SystemPhase.swift
+│   │   └── Errors.swift
+│   │
+│   ├── Metrics/
+│   │   └── DUMEMetric.swift
+│   │
+│   ├── Compression/
+│   │   └── SparseCompression.swift
+│   │
+│   └── Utils/
+│       └── SharedHelpers.swift
+│
+│   Responsibility:
+│   - Pure deterministic data structures
+│   - No I/O
+│   - No networking
+│   - No cryptography dependencies
+│
+│
+├── Engine/
+│   ├── Strict/
+│   │   ├── DUMEStrictEngine.swift
+│   │   ├── DUMEStrictConfig.swift
+│   │   ├── DeterministicClock.swift
+│   │   ├── MonotonicClock.swift
+│   │   └── StrictGossip.swift
+│   │
+│   ├── Hybrid/
+│   │   ├── DUMEHybridEngine.swift
+│   │   ├── BurstDetector.swift
+│   │   ├── SpeculativeEngine.swift
+│   │   └── HybridConfig.swift
+│   │
+│   ├── Shared/
+│   │   ├── DriftMonitor.swift
+│   │   ├── ApproximateIndex.swift
+│   │   └── Renormalizer.swift
+│   │
+│   └── Lifecycle/
+│       ├── EngineStateMachine.swift
+│       └── PhaseController.swift
+│
+│   Responsibility:
+│   - Vector ingestion logic
+│   - Deterministic or probabilistic compute paths
+│   - NO cryptography or audit logic
+│
+│
+├── Manifold/
+│   ├── Graph/
+│   │   ├── GraphEvolution.swift
+│   │   ├── GraphNode.swift
+│   │   └── GraphDelta.swift
+│   │
+│   ├── Learning/
+│   │   ├── NeighborSelection.swift
+│   │   └── ManifoldProjector.swift
+│   │
+│   └── Evolution/
+│       └── GraphMergePolicy.swift
+│
+│   Responsibility:
+│   - Structure learning layer
+│   - Topology evolution
+│   - Deterministic graph updates
+│
+│
+├── Storage/
+│   ├── Protocols/
+│   │   └── DUMEPersistentStorage.swift
+│   │
+│   ├── Tiered/
+│   │   └── TieredStorage.swift
+│   │
+│   ├── Backends/
+│   │   ├── MemoryStorage.swift
+│   │   ├── DiskStorage.swift
+│   │   └── CloudStorage.swift
+│   │
+│   └── Indexing/
+│       └── StorageIndex.swift
+│
+│   Responsibility:
+│   - Deterministic persistence layer
+│   - Hot/cold separation
+│   - No compute logic
+│
+│
+├── Transport/
+│   ├── Gossip/
+│   │   ├── GossipCoordinator.swift
+│   │   └── StrictGossip.swift
+│   │
+│   ├── Events/
+│   │   ├── DUMEEvent.swift
+│   │   └── EventBus.swift
+│   │
+│   └── Partitioning/
+│       └── DUMEPartitioner.swift
+│
+│   Responsibility:
+│   - Distributed synchronization
+│   - Event propagation
+│   - No storage authority
+│
+│
+├── Governance/
+│   ├── Crypto/
+│   │   ├── GovCrypto.swift
+│   │   └── SHA256CryptoV3.swift
+│   │
+│   ├── Policy/
+│   │   └── GovPolicyV3.swift
+│   │
+│   ├── Audit/
+│   │   ├── AuditRecordV3.swift
+│   │   ├── AuditLogV3.swift
+│   │   └── MerkleV3.swift
+│   │
+│   └── Engine/
+│       └── DUMEGovEngineV3.swift
+│
+│   Responsibility:
+│   - Cryptographic integrity
+│   - Policy enforcement
+│   - Immutable audit trail
+│   - ZERO influence on compute path
+│
+│
+├── Distributed/
+│   ├── Compute/
+│   │   └── DUMEEngineNode.swift
+│   │
+│   ├── Reconciliation/
+│   │   └── GlobalReconciler.swift
+│   │
+│   └── Sharding/
+│       └── DUMEPartitioner.swift
+│
+│   Responsibility:
+│   - Multi-node orchestration
+│   - Deterministic partition routing
+│   - Cluster-level coordination
+│
+│
+├── Extensions/
+│   ├── HybridClusterExtension.swift
+│   ├── GovernanceClusterBridge.swift
+│   └── GlobalManifold/
+│       ├── ClusterOps.swift
+│       └── GraphMergePolicy.swift
+│
+│   Responsibility:
+│   - Cross-layer integration
+│   - Optional system augmentation
+│
+│
+├── API/
+│   ├── SDK/
+│   │   ├── DUMEClient.swift
+│   │   └── Models.swift
+│   │
+│   ├── REST/
+│   │   └── Routes.swift
+│   │
+│   └── gRPC/
+│       └── Service.swift
+│
+│   Responsibility:
+│   - External system access
+│   - Stable public contract
+│
+│
+└── Apps/
+    ├── CLI/
+    │   └── main.swift
+    │
+    ├── Demo/
+    │   └── DemoApp.swift
+    │
+    └── iOS/
+        └── DUMEKit.swift
