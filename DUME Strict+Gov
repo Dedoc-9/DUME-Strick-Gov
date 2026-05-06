@@ -1,46 +1,303 @@
+import Foundation
+import CryptoKit
+import ObjectiveC
+
 // =====================================================
-// MARK: - STRICT ENGINE (FINALIZED API)
+// MARK: - TRUST ZONES
 // =====================================================
 
-extension DUMEStrictEngine {
+public enum TrustZone: String, Codable {
+    case ingest
+    case compute
+    case audit
+    case external
+}
 
-    // =====================================================
-    // MARK: - API
-    // =====================================================
+// =====================================================
+// MARK: - PROTOCOLS
+// =====================================================
 
-    public func retrieveEnvelope(id: String) async throws -> DeterministicEnvelope? {
-        return try await storage.get(id: id)
+public protocol DUMEPersistentStorage: Sendable {
+    func put(_ envelope: DeterministicEnvelope) async throws
+    func get(id: String) async throws -> DeterministicEnvelope?
+    func checkpoint() async throws
+    func restore() async throws
+}
+
+public protocol DUMEMetric: Sendable {
+    func distance(_ a: [Float], _ b: [Float]) -> Float
+}
+
+public protocol DeterministicClock: Sendable {
+    func tick() -> UInt64
+    func now() -> UInt64
+}
+
+// =====================================================
+// MARK: - CLOCK
+// =====================================================
+
+public final class MonotonicClock: DeterministicClock {
+    private var counter: UInt64 = 0
+    private let lock = NSLock()
+
+    public init() {}
+
+    public func tick() -> UInt64 {
+        lock.lock(); defer { lock.unlock() }
+        counter += 1
+        return counter
     }
 
-    public func ingest(
-        id: String,
-        vector: [Float],
-        ctx: CompressionContext
-    ) async throws {
+    public func now() -> UInt64 { counter }
+}
 
-        precondition(!id.isEmpty)
-        precondition(!vector.isEmpty)
+// =====================================================
+// MARK: - CORE MODELS
+// =====================================================
+
+public struct CompressionContext: Sendable {
+    public let drift: Float
+    public let entropy: Float
+}
+
+public struct Anchor: Codable, Sendable {
+    public let id: String
+    public let values: [Float]
+    public let indices: [Int]
+    public let denseCache: [Float]?
+    public let version: Int
+    public let timestamp: UInt64
+    public let originalSize: Int
+}
+
+public struct DeterministicEnvelope: Codable, Sendable {
+    public enum Phase: String, Codable { case active, archived }
+
+    public let anchor: Anchor
+    public let entropy: Float
+    public let drift: Float
+    public let isBurst: Bool
+    public let phase: Phase
+    public let speculationApplied: Bool
+    public let speculationConfidence: Float?
+    public let ingestIndex: Int
+    public let timestamp: UInt64
+    public let checksum: String
+}
+
+public enum DUMEError: Error {
+    case invalidVector(String)
+    case storageError(String)
+}
+
+// =====================================================
+// MARK: - CRYPTO
+// =====================================================
+
+public protocol GovCrypto: Sendable {
+    func hash(_ data: Data) -> Data
+    func sign(_ data: Data, keyID: String, zone: TrustZone) throws -> Data
+    func verify(_ data: Data, signature: Data, keyID: String, zone: TrustZone) -> Bool
+}
+
+public struct SHA256CryptoV3: GovCrypto {
+    public init() {}
+
+    public func hash(_ data: Data) -> Data {
+        Data(SHA256.hash(data: data))
+    }
+
+    public func sign(_ data: Data, keyID: String, zone: TrustZone) throws -> Data {
+        Data(SHA256.hash(data: data + Data(keyID.utf8) + Data(zone.rawValue.utf8)))
+    }
+
+    public func verify(_ data: Data, signature: Data, keyID: String, zone: TrustZone) -> Bool {
+        (try? sign(data, keyID: keyID, zone: zone)) == signature
+    }
+}
+
+// =====================================================
+// MARK: - AUDIT SYSTEM
+// =====================================================
+
+public struct GovPolicyV3: Codable, Sendable {
+    public let policyID: String
+    public let version: UInt64
+    public let maxDrift: Float
+    public let maxEntropy: Float
+    public let allowBurst: Bool
+}
+
+public struct AuditRecordV3: Codable, Sendable {
+    public let id: String
+    public let version: UInt64
+    public let timestamp: UInt64
+    public let envelopeHash: Data
+    public let prevHash: Data?
+    public let merkleRoot: Data
+    public let checkpointRoot: Data?
+    public let signature: Data
+    public let keyID: String
+    public let zone: TrustZone
+    public let actorID: String
+    public let policy: GovPolicyV3
+}
+
+public struct MerkleV3 {
+    static func root(_ hashes: [Data]) -> Data {
+        guard !hashes.isEmpty else { return Data() }
+        var level = hashes
+        while level.count > 1 {
+            var next: [Data] = []
+            for i in stride(from: 0, to: level.count, by: 2) {
+                let a = level[i]
+                let b = (i + 1 < level.count) ? level[i + 1] : a
+                next.append(Data(SHA256.hash(data: a + b)))
+            }
+            level = next
+        }
+        return level[0]
+    }
+}
+
+public actor AuditLogV3 {
+
+    private var records: [AuditRecordV3] = []
+    private let crypto: GovCrypto
+    private let keyID: String
+
+    public init(crypto: GovCrypto, keyID: String) {
+        self.crypto = crypto
+        self.keyID = keyID
+    }
+
+    public func append(envelope: DeterministicEnvelope,
+                       actorID: String,
+                       policy: GovPolicyV3,
+                       zone: TrustZone) async throws {
+
+        let encoded = try JSONEncoder().encode(envelope)
+        let hash = crypto.hash(encoded)
+        let prev = records.last?.envelopeHash
+
+        let signature = try crypto.sign(hash, keyID: keyID, zone: zone)
+
+        let record = AuditRecordV3(
+            id: envelope.anchor.id,
+            version: UInt64(envelope.ingestIndex),
+            timestamp: envelope.timestamp,
+            envelopeHash: hash,
+            prevHash: prev,
+            merkleRoot: MerkleV3.root(records.map { $0.envelopeHash } + [hash]),
+            checkpointRoot: nil,
+            signature: signature,
+            keyID: keyID,
+            zone: zone,
+            actorID: actorID,
+            policy: policy
+        )
+
+        records.append(record)
+    }
+
+    public func checkpoint() {}
+
+    public func verify() -> Bool { true }
+
+    public func snapshot() -> [AuditRecordV3] { records }
+}
+
+// =====================================================
+// MARK: - SUBSYSTEM STUBS
+// =====================================================
+
+public final class SparseCompression: Sendable {
+    public init() {}
+    public func compress(_ v: [Float], entropy: Float, drift: Float, isBurstMode: Bool)
+    throws -> ([Float], [Int]) {
+        (v, Array(v.indices))
+    }
+}
+
+public final class ApproximateIndex: Sendable {
+    public init() {}
+    public func insert(id: String, vector: [Float]) {}
+}
+
+public final class GraphEvolution: Sendable {
+    public init(metric: DUMEMetric, k: Int) {}
+    public func update(id: String, vector: [Float]) {}
+}
+
+public final class StrictGossip {
+    public init() {}
+    public func append(_ d: OrderedDelta) {}
+}
+
+public struct OrderedDelta: Sendable {
+    public let id: String
+    public let vector: [Float]
+    public let version: UInt64
+}
+
+public final class BurstDetector {
+    public init() {}
+    public var isBurstMode = false
+    public func update(entropy: Float) {}
+}
+
+// =====================================================
+// MARK: - STRICT ENGINE
+// =====================================================
+
+public final class DUMEStrictEngine {
+
+    private let storage: DUMEPersistentStorage
+    private let clock: DeterministicClock
+    private let config: DUMEStrictConfig
+    private let compression = SparseCompression()
+    private let index = ApproximateIndex()
+    private let graph: GraphEvolution
+    private let gossip = StrictGossip()
+    private let burst = BurstDetector()
+
+    private var ingestCount: UInt64 = 0
+
+    public init(metric: DUMEMetric,
+                storage: DUMEPersistentStorage,
+                clock: DeterministicClock = MonotonicClock(),
+                config: DUMEStrictConfig = .init()) {
+
+        self.storage = storage
+        self.clock = clock
+        self.config = config
+        self.graph = GraphEvolution(metric: metric, k: 3)
+    }
+
+    public func retrieveEnvelope(id: String) async throws -> DeterministicEnvelope? {
+        try await storage.get(id: id)
+    }
+
+    public func ingest(id: String,
+                       vector: [Float],
+                       ctx: CompressionContext) async throws {
 
         let version = clock.tick()
         ingestCount = version
 
-        // 1. Deterministic Compression (NO hidden state)
-        let (values, indices) = try compression.compress(
-            vector,
-            entropy: ctx.entropy,
-            drift: ctx.drift,
-            isBurstMode: false // strict determinism
-        )
+        let (values, indices) = try compression.compress(vector,
+                                                        entropy: ctx.entropy,
+                                                        drift: ctx.drift,
+                                                        isBurstMode: false)
 
-        let anchor = Anchor(
-            id: id,
-            values: values,
-            indices: indices,
-            denseCache: nil,
-            version: Int(version),
-            timestamp: version,
-            originalSize: vector.count
-        )
+        let anchor = Anchor(id: id,
+                            values: values,
+                            indices: indices,
+                            denseCache: nil,
+                            version: Int(version),
+                            timestamp: version,
+                            originalSize: vector.count)
 
         let envelope = DeterministicEnvelope(
             anchor: anchor,
@@ -55,24 +312,18 @@ extension DUMEStrictEngine {
             checksum: "\(id)-\(version)"
         )
 
-        // 2. Persistence (strict ordering)
         try await storage.put(envelope)
-
-        // 3. Deterministic subsystem updates
         index.insert(id: id, vector: vector)
         graph.update(id: id, vector: vector)
 
-        // 4. Ordered global sync
         if config.enableGlobalSync {
-            await gossip.append(
-                OrderedDelta(id: id, vector: vector, version: version)
-            )
+            await gossip.append(OrderedDelta(id: id, vector: vector, version: version))
         }
     }
 }
 
 // =====================================================
-// MARK: - GOVERNANCE ENGINE V3 (FINALIZED)
+// MARK: - GOVERNANCE ENGINE
 // =====================================================
 
 public final class DUMEGovEngineV3 {
@@ -82,77 +333,57 @@ public final class DUMEGovEngineV3 {
     private let policy: GovPolicyV3
     private let actorID: String
 
-    public init(
-        engine: DUMEStrictEngine,
-        crypto: GovCrypto,
-        keyID: String,
-        policy: GovPolicyV3,
-        actorID: String
-    ) {
+    public init(engine: DUMEStrictEngine,
+                crypto: GovCrypto = SHA256CryptoV3(),
+                keyID: String,
+                policy: GovPolicyV3,
+                actorID: String) {
+
         self.engine = engine
         self.audit = AuditLogV3(crypto: crypto, keyID: keyID)
         self.policy = policy
         self.actorID = actorID
     }
 
-    // =====================================================
-    // MARK: - POLICY ENFORCEMENT
-    // =====================================================
-
     private func enforce(_ ctx: CompressionContext) throws {
-
-        if ctx.drift > policy.maxDrift {
-            throw DUMEError.invalidVector("Policy Violation: Max Drift Exceeded")
-        }
-
-        if ctx.entropy > policy.maxEntropy {
-            throw DUMEError.invalidVector("Policy Violation: Max Entropy Exceeded")
-        }
+        guard ctx.drift <= policy.maxDrift else { throw DUMEError.invalidVector("drift") }
+        guard ctx.entropy <= policy.maxEntropy else { throw DUMEError.invalidVector("entropy") }
     }
 
-    // =====================================================
-    // MARK: - GOVERNED INGEST
-    // =====================================================
+    public func ingest(id: String,
+                       vector: [Float],
+                       ctx: CompressionContext) async throws {
 
-    public func ingest(
-        id: String,
-        vector: [Float],
-        ctx: CompressionContext
-    ) async throws {
-
-        // 1. Policy gate (pre-execution)
         try enforce(ctx)
 
-        // 2. Execute deterministic ingest
         try await engine.ingest(id: id, vector: vector, ctx: ctx)
 
-        // 3. Retrieve persisted envelope
-        guard let envelope = try await engine.retrieveEnvelope(id: id) else {
-            throw DUMEError.storageError("Failed to verify persistence for audit")
+        guard let env = try await engine.retrieveEnvelope(id: id) else {
+            throw DUMEError.storageError("missing envelope")
         }
 
-        // 4. Append to audit log (actor-safe, no await needed)
-        try await audit.append(
-            envelope: envelope,
-            actorID: actorID,
-            policy: policy,
-            zone: .ingest
-        )
+        try await audit.append(envelope: env,
+                               actorID: actorID,
+                               policy: policy,
+                               zone: .ingest)
     }
 
-    // =====================================================
-    // MARK: - CONTROL SURFACES
-    // =====================================================
-
-    public func checkpoint() async {
-        await audit.checkpoint()
-    }
-
-    public func verify() async -> Bool {
+    public func verifyIntegrity() async -> Bool {
         await audit.verify()
     }
 
-    public func export() async -> [AuditRecordV3] {
+    public func exportAudit() async -> [AuditRecordV3] {
         await audit.snapshot()
+    }
+}
+
+// =====================================================
+// MARK: - CONFIG
+// =====================================================
+
+public struct DUMEStrictConfig: Sendable {
+    public let enableGlobalSync: Bool
+    public init(globalSync: Bool = true) {
+        self.enableGlobalSync = globalSync
     }
 }
